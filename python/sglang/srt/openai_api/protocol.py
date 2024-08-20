@@ -219,8 +219,19 @@ class ChatCompletionMessageContentImagePart(BaseModel):
     image_url: ChatCompletionMessageContentImageURL
 
 
+class ChatCompletionMessageContentTableURL(BaseModel):
+    url: List[str]
+    """csv url for tables"""
+
+class ChatCompletionMessageContentTablePart(BaseModel):
+    type: Literal["table_url"]
+    table_url: ChatCompletionMessageContentTableURL
+
+
 ChatCompletionMessageContentPart = Union[
-    ChatCompletionMessageContentTextPart, ChatCompletionMessageContentImagePart
+    ChatCompletionMessageContentTextPart, 
+    ChatCompletionMessageContentImagePart,
+    ChatCompletionMessageContentTablePart
 ]
 
 

@@ -64,6 +64,12 @@ from sglang.srt.openai_api.protocol import (
     UsageInfo,
 )
 
+from sglang.global_config import global_config
+from transformers import PreTrainedTokenizer
+import torch
+
+
+
 chat_template_name = None
 
 
@@ -694,10 +700,42 @@ async def v1_completions(tokenizer_manager, raw_request: Request):
     return response
 
 
+# NOTE: return toke ids via custom tokenizer method
+def _table_tokenizer_insert(prompt:str,tokenizer:PreTrainedTokenizer) -> torch.Tensor:
+    '''
+    Tokenizes the input prompt by inserting a separator token between each chunk of text.
+
+    Args:
+        prompt (str): The input prompt to be tokenized. It contains one or more instances of the INSERT_EMBS_TOKEN.
+        tokenizer (transformers.PreTrainedTokenizer): The tokenizer object used for tokenization.
+
+    Returns:
+        torch.Tensor: The tokenized input prompt as a tensor of input IDs. You need to move to the correct device before using it.
+
+    '''
+    prompt_chunks = [tokenizer(e, padding="longest", max_length=tokenizer.model_max_length, truncation=True).input_ids 
+                     for e in prompt.split(global_config.table_insert_embed_token)]
+
+    def insert_separator(X, sep):
+        return [ele for sublist in zip(X, [sep]*len(X)) for ele in sublist][:-1]
+
+    input_ids = []
+    offset = 0
+    if len(prompt_chunks) > 0 and len(prompt_chunks[0]) > 0 and prompt_chunks[0][0] == tokenizer.bos_token_id: # tokenizer会在每次encode前面都加一个bos_token_id
+        offset = 1
+        input_ids.append(prompt_chunks[0][0])
+    
+    for x in insert_separator(prompt_chunks, [global_config.table_insert_embed_token_id] * (offset + 1)):  
+        # insert separator 返回的是 [chunk1, [sep] * (offset + 1), chunk2, [sep] * (offset + 2), ...]，
+        # 然后用offset统一减掉一个
+        input_ids.extend(x[offset:])
+    return torch.tensor(input_ids, dtype=torch.long)
+
+
 def v1_chat_generate_request(all_requests, tokenizer_manager):
     input_ids = []
     sampling_params_list = []
-    image_data_list = []
+    multi_data_list = []
     return_logprobs = []
     top_logprobs_nums = []
     for request in all_requests:
@@ -709,27 +747,44 @@ def v1_chat_generate_request(all_requests, tokenizer_manager):
         if not isinstance(request.messages, str):
             # Apply chat template and its stop strings.
             if chat_template_name is None:
+
                 prompt_ids = tokenizer_manager.tokenizer.apply_chat_template(
                     request.messages, tokenize=True, add_generation_prompt=True
                 )
                 stop = request.stop
-                image_data = None
+                multi_data = None
             else:
+                # NOTE: table use qwen2 insert
+                # TODO: make messages
+                # 1. parser messages and get the table urls
+                # 2. make new prompt
+                # 3. mak new messages
+                # TODO: 在model forward中还需要一个table embeddings
+
                 conv = generate_chat_conv(request, chat_template_name)
                 prompt = conv.get_prompt()
-                image_data = conv.image_data
+                # TODO: check the image data is table
+                # multi data should add the type of table or image
+                if conv.table_data is not None:
+                    multi_data = conv.table_data
+                    # TODO: this needs to awaitable?
+                    prompt_ids = _table_tokenizer_insert(prompt,tokenizer_manager.tokenizer)
+                else:
+                    multi_data = conv.image_data 
+                    prompt_ids = tokenizer_manager.tokenizer.encode(prompt)
+
                 stop = conv.stop_str or []
                 if request.stop:
                     if isinstance(request.stop, str):
                         stop.append(request.stop)
                     else:
-                        stop.extend(request.stop)
-                prompt_ids = tokenizer_manager.tokenizer.encode(prompt)
+                        stop.extend(request.stop) 
         else:
             # Use the raw prompt and stop strings if the messages is already a string.
             prompt_ids = request.messages
             stop = request.stop
-            image_data = None
+            multi_data = None
+        
         input_ids.append(prompt_ids)
         return_logprobs.append(request.logprobs)
         top_logprobs_nums.append(request.top_logprobs)
@@ -748,7 +803,9 @@ def v1_chat_generate_request(all_requests, tokenizer_manager):
                 "n": request.n,
             }
         )
-        image_data_list.append(image_data)
+        # NOTE: migrate to multi data
+        multi_data_list.append(multi_data)
+    
     if len(all_requests) == 1:
         input_ids = input_ids[0]
         if isinstance(input_ids, str):
@@ -756,7 +813,11 @@ def v1_chat_generate_request(all_requests, tokenizer_manager):
         else:
             prompt_kwargs = {"input_ids": input_ids}
         sampling_params_list = sampling_params_list[0]
-        image_data = image_data_list[0]
+        
+        # TODO: multi data
+        # NOTE: now we supported only one multi data
+        multi_data = multi_data_list[0]
+        
         return_logprobs = return_logprobs[0]
         top_logprobs_nums = top_logprobs_nums[0]
     else:
@@ -766,7 +827,8 @@ def v1_chat_generate_request(all_requests, tokenizer_manager):
             prompt_kwargs = {"input_ids": input_ids}
     adapted_request = GenerateReqInput(
         **prompt_kwargs,
-        image_data=image_data,
+        # image_data=image_data,
+        multi_data=multi_data,
         sampling_params=sampling_params_list,
         return_logprob=return_logprobs,
         top_logprobs_num=top_logprobs_nums,

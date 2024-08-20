@@ -20,11 +20,16 @@ processes (TokenizerManager, DetokenizerManager, Controller).
 
 import uuid
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union,Literal
 
 from sglang.srt.managers.schedule_batch import BaseFinishReason
 from sglang.srt.sampling_params import SamplingParams
 
+
+@dataclass
+class MultiDataDict:
+    type:Literal["image","table"]
+    url: List[str]
 
 @dataclass
 class GenerateReqInput:
@@ -34,7 +39,16 @@ class GenerateReqInput:
     input_ids: Optional[Union[List[List[int]], List[int]]] = None
     # The image input. It can be a file name, a url, or base64 encoded string.
     # See also python/sglang/srt/utils.py:load_image.
-    image_data: Optional[Union[List[str], str]] = None
+    # image_data: Optional[Union[List[str], str]] = None
+    
+    # # NOTE: Table 
+    # table_data:Optional[Union[List[str], str]] = None
+
+    # NOTE: image or table and so on.
+    # TODO: how to check is a table or image
+    # TODO: list or dict only?
+    multi_data: List[Optional[MultiDataDict]] = None
+
     # The sampling_params. See descriptions below.
     sampling_params: Union[List[Dict], Dict] = None
     # The request id.

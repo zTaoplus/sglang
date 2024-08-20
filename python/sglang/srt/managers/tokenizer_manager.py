@@ -29,6 +29,8 @@ import uvloop
 import zmq
 import zmq.asyncio
 from fastapi import BackgroundTasks
+import pandas as pd
+
 
 from sglang.srt.hf_transformers_utils import (
     get_config,
@@ -52,6 +54,7 @@ from sglang.srt.sampling_params import SamplingParams
 from sglang.srt.server_args import PortArgs, ServerArgs
 from sglang.srt.utils import is_generation_model, is_multimodal_model, load_image
 from sglang.utils import get_exception_traceback
+from .io_struct import MultiDataDict
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -183,6 +186,7 @@ class TokenizerManager:
                 obj.sampling_params if not_use_index else obj.sampling_params[index]
             )
 
+            # TODO: for table data
             if self.is_generation:
                 pixel_values, image_hash, image_size = await self._get_pixel_values(
                     obj.image_data if not_use_index else obj.image_data[index]
@@ -415,6 +419,7 @@ class TokenizerManager:
             sampling_params.verify()
         return sampling_params
 
+    # TODO: table data
     async def _get_pixel_values(self, image_data):
         if isinstance(image_data, list) and len(image_data) > 0:
             return await self.get_pixel_values(image_data[0])
@@ -422,7 +427,37 @@ class TokenizerManager:
             return await self.get_pixel_values(image_data)
         else:
             return None, None, None
+        
+    def _read_table_value_from_csv(self,table_urls:list[str]) -> List[pd.DataFrame]:
+        dfs = []
+        for url in table_urls:
+            df = pd.read_csv(url)
+            
+            filename = url.rsplit("/",maxsplit=1)[-1]
+            df._nick_name  = filename.split(".",maxsplit=1)[0]
+            dfs.append(df)
+        
+        return dfs
 
+    async def _get_table_values(self, table_data):
+        if isinstance(table_data,list):
+            return await asyncio.to_thread(self._read_table_value_from_csv,table_data)
+        elif isinstance(table_data,str):
+            return await asyncio.to_thread(self._read_table_value_from_csv,[table_data])
+        else:
+            return None, None, None
+
+    async def _get_multi_data_values(self, multi_data):
+        if not isinstance(multi_data, MultiDataDict):
+            return None, None, None
+        
+        if "image" in multi_data:
+            return await self._get_pixel_values(multi_data["url"])
+        elif "table" in multi_data:
+            return await self._get_table_values(multi_data["url"])
+        
+        return None, None, None
+        
     async def _wait_for_response(
         self,
         event: asyncio.Event,

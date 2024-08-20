@@ -217,8 +217,10 @@ def is_multimodal_model(model):
 
     if isinstance(model, ModelConfig):
         model_path = model.path.lower()
+        
+        # NOTE: table encoder hack to multi model
         return (
-            "llava" in model_path or "yi-vl" in model_path or "llava-next" in model_path
+            "llava" in model_path or "yi-vl" in model_path or "llava-next" in model_path or model.hf_config.get("table_encoder",None)
         )
 
     raise ValueError("unrecognized type")

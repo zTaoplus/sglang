@@ -283,6 +283,7 @@ class Qwen2ForCausalLM(nn.Module):
         positions: torch.Tensor,
         input_metadata: InputMetadata,
         input_embeds: torch.Tensor = None,
+        **kwargs
     ) -> torch.Tensor:
         hidden_states = self.model(input_ids, positions, input_metadata, input_embeds)
         return self.logits_processor(

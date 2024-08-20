@@ -46,4 +46,15 @@ class GlobalConfig:
         self.concate_and_append_mode = "no_adjust"
 
 
+        # NOTE: tables config
+        # TODO: should get value from env
+        self.table_read_nrows = 500
+        self.table_insert_embed_token = "<insert_embs>"
+        self.table_insert_embed_token_id = -114
+        self.table_insert_sep_token = "<insert_sep>"
+        # MAX_ROW = 20
+        # MAX_COL = 30
+        self.table_max_row = 20
+        self.table_max_col = 30
+
 global_config = GlobalConfig()

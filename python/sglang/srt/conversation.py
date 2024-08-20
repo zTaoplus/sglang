@@ -23,6 +23,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from sglang.srt.openai_api.protocol import ChatCompletionRequest
 
+from sglang.utils import build_table_question
+
 
 class SeparatorStyle(IntEnum):
     """Separator styles."""
@@ -70,6 +72,8 @@ class Conversation:
     # Stop criteria (the default one is EOS token)
     stop_str: Union[str, List[str]] = None
     image_data: Optional[List[str]] = None
+
+    table_data: Optional[List[str]] = None
 
     def get_prompt(self) -> str:
         """Get the prompt for generation."""
@@ -273,6 +277,9 @@ class Conversation:
         """Append a new message."""
         self.image_data.append(image)
 
+    def append_table(self,table):
+        self.table_data.append(table)
+
     def update_last_message(self, message: str):
         """Update the last output.
 
@@ -347,7 +354,7 @@ def register_conv_template(template: Conversation, override: bool = False):
 def chat_template_exists(template_name: str) -> bool:
     return template_name in chat_templates
 
-
+# TODO: migerate to awaitable
 def generate_chat_conv(
     request: ChatCompletionRequest, template_name: str
 ) -> Conversation:
@@ -364,6 +371,7 @@ def generate_chat_conv(
         sep2=conv.sep2,
         stop_str=conv.stop_str,
         image_data=[],
+        table_data=[]
     )
 
     if isinstance(request.messages, str):
@@ -386,6 +394,13 @@ def generate_chat_conv(
                         # NOTE: Only works for llava
                         real_content += "<image>\n"
                         conv.append_image(content.image_url.url)
+                    elif content.type == "table_url":
+                        # NOTE: Only works for qwen2 tb
+                        # TODO: should can await this?
+                        df_info_query, dfs = build_table_question(content.table_url.url, real_content)
+                        real_content = df_info_query
+                        # TODO: return dfs
+                        conv.append_table(dfs)
                 conv.append_message(conv.roles[0], real_content)
         elif msg_role == "assistant":
             conv.append_message(conv.roles[1], message.content)
